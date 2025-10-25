@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TaskFlow - Modern Task Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+  <style id="app-style">
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --secondary: #ec4899;
+      --success: #22c55e;
+      --warning: #eab308;
+      --danger: #ef4444;
+      --dark: #1e293b;
+      --light: #f8fafc;
+    }
+    
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #f1f5f9;
+      color: #334155;
+    }
+    
+    .kanban-column {
+      min-height: 400px;
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+    
+    .kanban-column::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .kanban-column::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 3px;
+    }
+    
+    .task-card {
+      cursor: grab;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    
+    .task-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+    
+    .task-card:active {
+      cursor: grabbing;
+    }
+    
+    .task-card.dragging {
+      opacity: 0.8;
+      box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+    }
+    
+    .priority-high {
+      background: linear-gradient(90deg, var(--danger) 4px, transparent 0);
+    }
+    
+    .priority-medium {
+      background: linear-gradient(90deg, var(--warning) 4px, transparent 0);
+    }
+    
+    .priority-low {
+      background: linear-gradient(90deg, var(--success) 4px, transparent 0);
+    }
+    
+    .modal-overlay {
+      backdrop-filter: blur(3px);
+      background-color: rgba(15, 23, 42, 0.6);
+    }
+    
+    .animate-in {
+      animation: fadeIn 0.3s ease-out;
+    }
+    
+    .animate-out {
+      animation: fadeOut 0.3s ease-out forwards;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes fadeOut {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(-10px); }
+    }
+    
+    .toast {
+      animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-out 4.7s forwards;
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateY(-20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .board-tab.active {
+      border-bottom: 3px solid var(--primary);
+      font-weight: 600;
+    }
+    
+    .emoji-picker {
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+    
+    .column-header-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    
+    .due-soon {
+      color: var(--warning);
+    }
+    
+    .overdue {
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <!-- Global Header -->
+  <header class="bg-white shadow-md fixed top-0 left-0 right-0 z-10">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center">
+        <h1 class="text-2xl font-bold text-indigo-600">
+          <i class="fa-solid fa-clipboard-check mr-2"></i>TaskFlow
+        </h1>
+      </div>
+      <div class="flex items-center space-x-4">
+        <button id="notificationButton" class="relative text-slate-600 hover:text-indigo-600 transition-colors p-2">
+          <i class="fa-regular fa-bell text-xl"></i>
+          <span class="absolute top-0 right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">2</span>
+        </button>
+        <button id="createBoardBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm flex items-center">
+          <i class="fa-solid fa-plus mr-2"></i>Create Board
+        </button>
+        <div class="flex items-center space-x-2">
+          <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="User avatar" class="w-10 h-10 rounded-full border-2 border-indigo-200">
+          <div class="hidden md:block">
+            <p class="font-medium text-sm">Alex Johnson</p>
+            <p class="text-xs text-slate-500">Premium Plan</p>
+          </div>
+          <i class="fa-solid fa-chevron-down text-xs text-slate-400"></i>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="pt-20 pb-8 px-4">
+    <div class="max-w-7xl mx-auto">
+      <!-- Board Tabs -->
+      <div class="bg-white rounded-t-lg shadow-sm p-3 flex items-center space-x-1 overflow-x-auto">
+        <button class="board-tab active px-4 py-2 text-indigo-600 transition-colors">
+          <span class="flex items-center">
+            <span class="emoji-picker">🚀</span>
+            <span class="ml-2">Product Launch</span>
+          </span>
+        </button>
+        <button class="board-tab px-4 py-2 text-slate-600 hover:text-indigo-600 transition-colors">
+          <span class="flex items-center">
+            <span class="emoji-picker">💡</span>
+            <span class="ml-2">Marketing Ideas</span>
+          </span>
+        </button>
+        <button class="board-tab px-4 py-2 text-slate-600 hover:text-indigo-600 transition-colors">
+          <span class="flex items-center">
+            <span class="emoji-picker">🛠️</span>
+            <span class="ml-2">Development</span>
+          </span>
+        </button>
+      </div>
+      
+      <!-- Kanban Board -->
+      <div class="bg-slate-50 p-4 rounded-b-lg shadow-sm">
+        <div class="flex space-x-4 overflow-x-auto pb-4" id="kanbanBoard">
+          <!-- Column: To Do -->
+          <div class="kanban-column bg-white rounded-lg shadow-sm w-80 flex-shrink-0">
+            <div class="p-3 border-b flex items-center justify-between">
+              <h3 class="font-semibold text-slate-700 flex items-center">
+                <span class="column-header-color bg-blue-500"></span>
+                To Do
+                <span class="ml-2 text-slate-500 text-sm font-normal">(4)</span>
+              </h3>
+              <div class="flex space-x-2">
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors">
+                  <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors add-task-btn" data-column="todo">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="p-3 tasks-container" id="todoTasks">
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-high">
+                <h4 class="font-medium text-slate-800 mb-2">Design new landing page</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span class="overdue">Overdue: Jun 15</span>
+                  </span>
+                  <span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">Design</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>3
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-medium">
+                <h4 class="font-medium text-slate-800 mb-2">Research competitors</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span class="due-soon">Due: Jun 30</span>
+                  </span>
+                  <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">Research</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>0
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-low">
+                <h4 class="font-medium text-slate-800 mb-2">Update documentation</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span>Due: Jul 15</span>
+                  </span>
+                  <span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded-full">Docs</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>1
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-medium">
+                <h4 class="font-medium text-slate-800 mb-2">Plan marketing campaign</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span>Due: Jul 22</span>
+                  </span>
+                  <span class="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full">Marketing</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>5
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Column: In Progress -->
+          <div class="kanban-column bg-white rounded-lg shadow-sm w-80 flex-shrink-0">
+            <div class="p-3 border-b flex items-center justify-between">
+              <h3 class="font-semibold text-slate-700 flex items-center">
+                <span class="column-header-color bg-amber-500"></span>
+                In Progress
+                <span class="ml-2 text-slate-500 text-sm font-normal">(3)</span>
+              </h3>
+              <div class="flex space-x-2">
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors">
+                  <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors add-task-btn" data-column="inprogress">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="p-3 tasks-container" id="inProgressTasks">
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-high">
+                <h4 class="font-medium text-slate-800 mb-2">Develop API endpoints</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span class="due-soon">Due: Tomorrow</span>
+                  </span>
+                  <span class="bg-sky-100 text-sky-800 text-xs px-2 py-1 rounded-full">Backend</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>7
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-medium">
+                <h4 class="font-medium text-slate-800 mb-2">Create onboarding flow</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span>Due: Jul 5</span>
+                  </span>
+                  <span class="bg-violet-100 text-violet-800 text-xs px-2 py-1 rounded-full">UX</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>2
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-high">
+                <h4 class="font-medium text-slate-800 mb-2">Fix payment integration</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span class="overdue">Overdue: Jun 28</span>
+                  </span>
+                  <span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full">Bug</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>4
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Column: Review -->
+          <div class="kanban-column bg-white rounded-lg shadow-sm w-80 flex-shrink-0">
+            <div class="p-3 border-b flex items-center justify-between">
+              <h3 class="font-semibold text-slate-700 flex items-center">
+                <span class="column-header-color bg-purple-500"></span>
+                Review
+                <span class="ml-2 text-slate-500 text-sm font-normal">(2)</span>
+              </h3>
+              <div class="flex space-x-2">
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors">
+                  <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors add-task-btn" data-column="review">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="p-3 tasks-container" id="reviewTasks">
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-medium">
+                <h4 class="font-medium text-slate-800 mb-2">Redesign navigation</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span>Due: Jul 10</span>
+                  </span>
+                  <span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">Design</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>2
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-low">
+                <h4 class="font-medium text-slate-800 mb-2">Improve error handling</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-regular fa-clock mr-1"></i>
+                    <span>Due: Jul 12</span>
+                  </span>
+                  <span class="bg-sky-100 text-sky-800 text-xs px-2 py-1 rounded-full">Backend</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>1
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Column: Done -->
+          <div class="kanban-column bg-white rounded-lg shadow-sm w-80 flex-shrink-0">
+            <div class="p-3 border-b flex items-center justify-between">
+              <h3 class="font-semibold text-slate-700 flex items-center">
+                <span class="column-header-color bg-green-500"></span>
+                Done
+                <span class="ml-2 text-slate-500 text-sm font-normal">(3)</span>
+              </h3>
+              <div class="flex space-x-2">
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors">
+                  <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <button class="text-slate-400 hover:text-indigo-600 transition-colors add-task-btn" data-column="done">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="p-3 tasks-container" id="doneTasks">
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-high">
+                <h4 class="font-medium text-slate-800 mb-2">Create project timeline</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-solid fa-check mr-1"></i>
+                    <span>Completed</span>
+                  </span>
+                  <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">Planning</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>0
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-medium">
+                <h4 class="font-medium text-slate-800 mb-2">Setup CI/CD pipeline</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-solid fa-check mr-1"></i>
+                    <span>Completed</span>
+                  </span>
+                  <span class="bg-fuchsia-100 text-fuchsia-800 text-xs px-2 py-1 rounded-full">DevOps</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>3
+                  </span>
+                </div>
+              </div>
+              
+              <div class="task-card mb-3 p-3 bg-white rounded-lg border border-slate-200 shadow-sm priority-low">
+                <h4 class="font-medium text-slate-800 mb-2">Draft press release</h4>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full flex items-center">
+                    <i class="fa-solid fa-check mr-1"></i>
+                    <span>Completed</span>
+                  </span>
+                  <span class="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full">Marketing</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex -space-x-2">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-6 h-6 rounded-full border border-white">
+                  </div>
+                  <span class="text-xs text-slate-500">
+                    <i class="fa-regular fa-comment mr-1"></i>4
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Add Column Button -->
+          <div class="flex-shrink-0 w-80 flex items-center justify-center">
+            <button id="addColumnBtn" class="w-full h-12 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-500 hover:text-indigo-600 transition-colors flex items-center justify-center">
+              <i class="fa-solid fa-plus mr-2"></i> Add Column
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating Add Task Button -->
+  <button id="floatingAddTaskBtn" class="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl z-10">
+    <i class="fa-solid fa-plus"></i>
+  </button>
+  
+  <!-- Team Sidebar Toggle -->
+  <button id="teamSidebarToggle" class="fixed bottom-6 left-6 bg-white border border-slate-200 text-indigo-600 hover:bg-indigo-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl z-10">
+    <i class="fa-solid fa-users"></i>
+  </button>
+
+  <!-- Task Detail Modal (Hidden by default) -->
+  <div id="taskDetailModal" class="hidden fixed inset-0 z-50">
+    <div class="modal-overlay absolute inset-0"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-in">
+        <div class="flex items-center justify-between border-b p-4">
+          <div class="flex items-center">
+            <div class="w-2 h-6 bg-amber-500 rounded mr-3"></div>
+            <h3 class="text-xl font-semibold text-slate-800">Task Details</h3>
+          </div>
+          <button id="closeTaskDetailBtn" class="text-slate-500 hover:text-slate-700">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+        <div class="p-6 overflow-y-auto max-h-[calc(90vh-10rem)]">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-2">
+              <div class="mb-6">
+                <input type="text" class="text-xl font-semibold text-slate-800 w-full border-0 border-b-2 border-transparent focus:border-indigo-500 focus:ring-0 px-0 py-2" value="Develop API endpoints" placeholder="Task title">
+              </div>
+              
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                <div class="border border-slate-300 rounded-lg p-3 min-h-32 focus:ring-2 focus:ring-indigo-500" contenteditable="true">
+                  <p>Create REST API endpoints for the new user authentication system. The endpoints should include:</p>
+                  <ul class="list-disc pl-5 mt-2">
+                    <li>User registration</li>
+                    <li>Login / Logout</li>
+                    <li>Password reset</li>
+                    <li>Email verification</li>
+                    <li>Profile update</li>
+                  </ul>
+                  <p class="mt-2">All endpoints should include proper validation and error handling.</p>
+                </div>
+              </div>
+              
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-700 mb-2">Comments</label>
+                <div class="bg-slate-50 rounded-lg p-4 max-h-60 overflow-y-auto space-y-4">
+                  <div class="flex space-x-3">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="User avatar" class="w-8 h-8 rounded-full">
+                    <div class="flex-1">
+                      <div class="bg-white p-3 rounded-lg shadow-sm">
+                        <div class="flex items-center justify-between mb-1">
+                          <span class="font-medium text-slate-800">Alex Johnson</span>
+                          <span class="text-xs text-slate-500">Yesterday at 2:30 PM</span>
+                        </div>
+                        <p class="text-slate-600 text-sm">I've started working on the authentication endpoints. Will need some clarification on the password requirements.</p>
+                      </div>
+                      <div class="flex items-center mt-1 ml-1 text-xs text-slate-500">
+                        <button class="hover:text-indigo-600 mr-2">Reply</button>
+                        <button class="hover:text-indigo-600 mr-2">Edit</button>
+                        <button class="hover:text-red-600">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="flex space-x-3 pl-8">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="User avatar" class="w-8 h-8 rounded-full">
+                    <div class="flex-1">
+                      <div class="bg-white p-3 rounded-lg shadow-sm">
+                        <div class="flex items-center justify-between mb-1">
+                          <span class="font-medium text-slate-800">Sarah Miller</span>
+                          <span class="text-xs text-slate-500">Yesterday at 3:15 PM</span>
+                        </div>
+                        <p class="text-slate-600 text-sm">Password should follow NIST guidelines: min 8 chars, check against common passwords, no complexity requirements.</p>
+                      </div>
+                      <div class="flex items-center mt-1 ml-1 text-xs text-slate-500">
+                        <button class="hover:text-indigo-600 mr-2">Reply</button>
+                        <button class="hover:text-indigo-600 mr-2">Edit</button>
+                        <button class="hover:text-red-600">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="flex space-x-3">
+                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="User avatar" class="w-8 h-8 rounded-full">
+                    <div class="flex-1">
+                      <div class="bg-white p-3 rounded-lg shadow-sm">
+                        <div class="flex items-center justify-between mb-1">
+                          <span class="font-medium text-slate-800">Jason Cooper</span>
+                          <span class="text-xs text-slate-500">Today at 9:12 AM</span>
+                        </div>
+                        <p class="text-slate-600 text-sm">Don't forget to add rate limiting to prevent brute force attacks on these endpoints.</p>
+                      </div>
+                      <div class="flex items-center mt-1 ml-1 text-xs text-slate-500">
+                        <button class="hover:text-indigo-600 mr-2">Reply</button>
+                        <button class="hover:text-indigo-600 mr-2">Edit</button>
+                        <button class="hover:text-red-600">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="mt-4 flex items-start space-x-3">
+                  <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="User avatar" class="w-8 h-8 rounded-full">
+                  <div class="flex-1">
+                    <textarea class="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" rows="2" placeholder="Add a comment..."></textarea>
+                    <div class="mt-2 flex justify-between">
+                      <div class="flex space-x-2">
+                        <button class="text-slate-400 hover:text-indigo-600">
+                          <i class="fa-regular fa-image"></i>
+                        </button>
+                        <button class="text-slate-400 hover:text-indigo-600">
+                          <i class="fa-solid fa-at"></i>
+                        </button>
+                        <button class="text-slate-400 hover:text-indigo-600">
+                          <i class="fa-regular fa-face-smile"></i>
+                        </button>
+                      </div>
+                      <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1 rounded-lg text-sm font-medium">
+                        Comment
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <div class="space-y-6">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Status</label>
+                  <select class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <option>To Do</option>
+                    <option selected>In Progress</option>
+                    <option>Review</option>
+                    <option>Done</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Priority</label>
+                  <div class="flex space-x-2">
+                    <button class="flex-1 py-2 px-3 border border-slate-300 rounded-lg bg-red-50 text-red-600 hover:bg-red-100">
+                      <i class="fa-solid fa-arrow-up mr-1"></i> High
+                    </button>
+                    <button class="flex-1 py-2 px-3 border border-slate-300 rounded-lg bg-white hover:bg-amber-50 hover:text-amber-600">
+                      <i class="fa-solid fa-minus mr-1"></i> Medium
+                    </button>
+                    <button class="flex-1 py-2 px-3 border border-slate-300 rounded-lg bg-white hover:bg-green-50 hover:text-green-600">
+                      <i class="fa-solid fa-arrow-down mr-1"></i> Low
+                    </button>
+                  </div>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Due Date</label>
+                  <div class="relative">
+                    <input type="date" class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="2025-06-30">
+                  </div>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Assignees</label>
+                  <div class="flex flex-wrap -m-1 mb-2">
+                    <div class="m-1 flex items-center bg-slate-100 text-slate-800 px-2 py-1 rounded-full text-sm">
+                      <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Assignee" class="w-5 h-5 rounded-full mr-1">
+                      Alex Johnson
+                      <button class="ml-1 text-slate-400 hover:text-red-500">
+                        <i class="fa-solid fa-xmark"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="relative">
+                    <input type="text" class="w-full bg-white border border-slate-300 rounded-lg py-2 pl-9 pr-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Add team members...">
+                    <i class="fa-solid fa-user-plus absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                  </div>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Tags</label>
+                  <div class="flex flex-wrap -m-1 mb-2">
+                    <div class="m-1 flex items-center bg-sky-100 text-sky-800 px-2 py-1 rounded-full text-sm">
+                      Backend
+                      <button class="ml-1 text-slate-400 hover:text-red-500">
+                        <i class="fa-solid fa-xmark"></i>
+                      </button>
+                    </div>
+                    <div class="m-1 flex items-center bg-violet-100 text-violet-800 px-2 py-1 rounded-full text-sm">
+                      API
+                      <button class="ml-1 text-slate-400 hover:text-red-500">
+                        <i class="fa-solid fa-xmark"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="relative">
+                    <input type="text" class="w-full bg-white border border-slate-300 rounded-lg py-2 pl-9 pr-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Add tag...">
+                    <i class="fa-solid fa-tag absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                  </div>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Attachments</label>
+                  <div class="space-y-2 mb-2">
+                    <div class="flex items-center justify-between bg-slate-50 p-2 rounded-lg">
+                      <div class="flex items-center">
+                        <i class="fa-regular fa-file-pdf text-red-500 text-xl mr-2"></i>
+                        <div>
+                          <p class="text-sm font-medium text-slate-700">API_docs.pdf</p>
+                          <p class="text-xs text-slate-500">2.4 MB</p>
+                        </div>
+                      </div>
+                      <button class="text-slate-400 hover:text-red-500">
+                        <i class="fa-solid fa-trash-can"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="relative">
+                    <button class="w-full bg-white border border-dashed border-slate-300 rounded-lg p-4 text-slate-500 hover:text-indigo-600 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                      <i class="fa-solid fa-cloud-arrow-up mr-1"></i>
+                      Add attachment
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="border-t p-4 flex justify-end space-x-3">
+          <button class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Team Sidebar (Hidden by default) -->
+  <div id="teamSidebar" class="hidden fixed inset-y-0 left-0 z-40 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out">
+    <div class="flex flex-col h-full">
+      <div class="p-4 border-b flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-slate-800">Team Members</h3>
+        <button id="closeTeamSidebarBtn" class="text-slate-500 hover:text-slate-700">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <div class="relative">
+          <input type="text" placeholder="Search team members..." class="w-full border border-slate-300 rounded-lg py-2 pl-9 pr-3">
+          <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+        </div>
+        
+        <div class="space-y-3">
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div class="flex items-center space-x-3">
+              <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Team member" class="w-10 h-10 rounded-full">
+              <div>
+                <p class="font-medium text-slate-800">Alex Johnson</p>
+                <p class="text-xs text-slate-500">alex@company.com</p>
+              </div>
+            </div>
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full">Admin</span>
+          </div>
+          
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div class="flex items-center space-x-3">
+              <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Team member" class="w-10 h-10 rounded-full">
+              <div>
+                <p class="font-medium text-slate-800">Sarah Miller</p>
+                <p class="text-xs text-slate-500">sarah@company.com</p>
+              </div>
+            </div>
+            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">Manager</span>
+          </div>
+          
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div class="flex items-center space-x-3">
+              <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Team member" class="w-10 h-10 rounded-full">
+              <div>
+                <p class="font-medium text-slate-800">Jason Cooper</p>
+                <p class="text-xs text-slate-500">jason@company.com</p>
+              </div>
+            </div>
+            <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Member</span>
+          </div>
+          
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div class="flex items-center space-x-3">
+              <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" alt="Team member" class="w-10 h-10 rounded-full">
+              <div>
+                <p class="font-medium text-slate-800">Emily Rodriguez</p>
+                <p class="text-xs text-slate-500">emily@company.com</p>
+              </div>
+            </div>
+            <span class="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">Viewer</span>
+          </div>
+        </div>
+        
+        <div class="pt-4 border-t mt-4">
+          <h4 class="text-sm font-medium text-slate-700 mb-3">Invite New Member</h4>
+          <div class="space-y-3">
+            <input type="email" placeholder="Email address" class="w-full border border-slate-300 rounded-lg py-2 px-3">
+            <select class="w-full border border-slate-300 rounded-lg py-2 px-3">
+              <option value="" disabled selected>Select role</option>
+              <option>Admin</option>
+              <option>Manager</option>
+              <option>Member</option>
+              <option>Viewer</option>
+            </select>
+            <button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg">
+              Send Invitation
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Notification Dropdown (Hidden by default) -->
+  <div id="notificationDropdown" class="hidden absolute top-16 right-4 bg-white rounded-lg shadow-lg border border-slate-200 w-80 z-50 animate-in">
+    <div class="p-3 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-slate-800">Notifications</h3>
+      <button class="text-sm text-indigo-600 hover:text-indigo-800">Mark all as read</button>
+    </div>
+    <div class="max-h-96 overflow-y-auto">
+      <div class="p-3 border-b hover:bg-slate-50 cursor-pointer flex items-start space-x-3">
+        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-blue-600">
+          <i class="fa-solid fa-user-plus"></i>
+        </div>
+        <div>
+          <p class="text-sm text-slate-800">
+            <span class="font-medium">Sarah Miller</span> assigned you to <span class="font-medium">Fix payment integration</span>
+          </p>
+          <p class="text-xs text-slate-500 mt-1">10 minutes ago</p>
+        </div>
+      </div>
+      <div class="p-3 border-b hover:bg-slate-50 cursor-pointer flex items-start space-x-3">
+        <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 text-green-600">
+          <i class="fa-solid fa-check"></i>
+        </div>
+        <div>
+          <p class="text-sm text-slate-800">
+            <span class="font-medium">Jason Cooper</span> moved <span class="font-medium">Improve error handling</span> to Review
+          </p>
+          <p class="text-xs text-slate-500 mt-1">1 hour ago</p>
+        </div>
+      </div>
+      <div class="p-3 border-b hover:bg-slate-50 cursor-pointer flex items-start space-x-3">
+        <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+          <i class="fa-solid fa-comment"></i>
+        </div>
+        <div>
+          <p class="text-sm text-slate-800">
+            <span class="font-medium">Emily Rodriguez</span> commented on <span class="font-medium">Draft press release</span>
+          </p>
+          <p class="text-xs text-slate-500 mt-1">3 hours ago</p>
+        </div>
+      </div>
+      <div class="p-3 hover:bg-slate-50 cursor-pointer flex items-start space-x-3">
+        <div class="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600">
+          <i class="fa-solid fa-clock"></i>
+        </div>
+        <div>
+          <p class="text-sm text-slate-800">
+            <span class="font-medium">Design new landing page</span> is overdue
+          </p>
+          <p class="text-xs text-slate-500 mt-1">Yesterday</p>
+        </div>
+      </div>
+    </div>
+    <div class="p-3 text-center border-t">
+      <button class="text-sm text-indigo-600 hover:text-indigo-800">View all notifications</button>
+    </div>
+  </div>
+  
+  <!-- Toast Notification (Hidden by default) -->
+  <div id="toastNotification" class="hidden fixed top-4 right-4 bg-white rounded-lg shadow-lg border-l-4 border-green-500 p-4 w-80 z-50 toast">
+    <div class="flex items-start">
+      <div class="flex-shrink-0 pt-0.5">
+        <i class="fa-solid fa-check-circle text-green-500 text-xl"></i>
+      </div>
+      <div class="ml-3 w-0 flex-1">
+        <p class="text-sm font-medium text-slate-800">Task updated successfully</p>
+        <p class="mt-1 text-sm text-slate-500">All changes have been saved</p>
+      </div>
+      <div class="ml-4 flex-shrink-0 flex">
+        <button id="closeToastBtn" class="inline-flex text-slate-400 hover:text-slate-500">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Add/Edit Board Modal (Hidden by default) -->
+  <div id="boardModal" class="hidden fixed inset-0 z-50">
+    <div class="modal-overlay absolute inset-0"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md animate-in">
+        <div class="p-4 border-b">
+          <h3 class="text-lg font-semibold text-slate-800">Create New Board</h3>
+        </div>
+        <div class="p-4">
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-slate-700 mb-2">Board Title</label>
+            <input type="text" class="w-full border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Enter board title">
+          </div>
+          
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-slate-700 mb-2">Board Icon</label>
+            <div class="grid grid-cols-6 gap-2">
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">🚀</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">💡</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">🛠️</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">📊</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">🎯</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">📝</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">🔍</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">📱</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">💻</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">🎨</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">📈</button>
+              <button class="h-10 w-10 flex items-center justify-center text-xl border border-slate-200 rounded hover:bg-slate-50">🔧</button>
+            </div>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Columns</label>
+            <div class="space-y-2 mb-3">
+              <div class="flex items-center border border-slate-200 rounded-lg p-2">
+                <div class="w-5 h-5 bg-blue-500 rounded mr-2"></div>
+                <input type="text" value="To Do" class="flex-1 border-0 focus:ring-0 text-sm" placeholder="Column name">
+                <button class="text-slate-400 hover:text-red-500">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+              
+              <div class="flex items-center border border-slate-200 rounded-lg p-2">
+                <div class="w-5 h-5 bg-amber-500 rounded mr-2"></div>
+                <input type="text" value="In Progress" class="flex-1 border-0 focus:ring-0 text-sm" placeholder="Column name">
+                <button class="text-slate-400 hover:text-red-500">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+              
+              <div class="flex items-center border border-slate-200 rounded-lg p-2">
+                <div class="w-5 h-5 bg-purple-500 rounded mr-2"></div>
+                <input type="text" value="Review" class="flex-1 border-0 focus:ring-0 text-sm" placeholder="Column name">
+                <button class="text-slate-400 hover:text-red-500">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+              
+              <div class="flex items-center border border-slate-200 rounded-lg p-2">
+                <div class="w-5 h-5 bg-green-500 rounded mr-2"></div>
+                <input type="text" value="Done" class="flex-1 border-0 focus:ring-0 text-sm" placeholder="Column name">
+                <button class="text-slate-400 hover:text-red-500">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+            
+            <button class="text-indigo-600 hover:text-indigo-800 text-sm flex items-center">
+              <i class="fa-solid fa-plus mr-1"></i> Add Column
+            </button>
+          </div>
+        </div>
+        <div class="p-4 border-t flex justify-end space-x-3">
+          <button id="closeBoardModalBtn" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">
+            Create Board
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Quick Add Task Modal (Hidden by default) -->
+  <div id="quickAddTaskModal" class="hidden fixed inset-0 z-50">
+    <div class="modal-overlay absolute inset-0"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md animate-in">
+        <div class="p-4 border-b flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-slate-800">Add New Task</h3>
+          <button id="closeQuickAddTaskBtn" class="text-slate-500 hover:text-slate-700">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="p-4">
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-slate-700 mb-2">Title</label>
+            <input type="text" class="w-full border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Enter task title">
+          </div>
+          
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-slate-700 mb-2">Description</label>
+            <textarea class="w-full border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3" placeholder="Enter task description"></textarea>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Status</label>
+              <select class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option>To Do</option>
+                <option>In Progress</option>
+                <option>Review</option>
+                <option>Done</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Priority</label>
+              <select class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option>Low</option>
+                <option selected>Medium</option>
+                <option>High</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Due Date</label>
+              <input type="date" class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Assignee</label>
+              <select class="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="" selected disabled>Select assignee</option>
+                <option>Alex Johnson</option>
+                <option>Sarah Miller</option>
+                <option>Jason Cooper</option>
+                <option>Emily Rodriguez</option>
+              </select>
+            </div>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Tags</label>
+            <div class="flex flex-wrap -m-1 mb-2">
+              <div class="m-1 flex items-center bg-sky-100 text-sky-800 px-2 py-1 rounded-full text-sm">
+                Backend
+                <button class="ml-1 text-slate-400 hover:text-red-500">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+            <div class="relative">
+              <input type="text" class="w-full bg-white border border-slate-300 rounded-lg py-2 pl-9 pr-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Add tag...">
+              <i class="fa-solid fa-tag absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex justify-end space-x-3">
+          <button class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">
+            Add Task
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script id="app-script">
+    // Initialize Sortable.js on each tasks container
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize kanban columns with Sortable
+      const taskContainers = document.querySelectorAll('.tasks-container');
+      taskContainers.forEach(container => {
+        new Sortable(container, {
+          group: 'tasks',
+          animation: 150,
+          ghostClass: 'opacity-60',
+          dragClass: 'dragging',
+          onEnd: function(evt) {
+            showToast('Task moved successfully');
+          }
+        });
+      });
+      
+      // Modal handlers
+      const taskDetailModal = document.getElementById('taskDetailModal');
+      const teamSidebar = document.getElementById('teamSidebar');
+      const notificationDropdown = document.getElementById('notificationDropdown');
+      const boardModal = document.getElementById('boardModal');
+      const quickAddTaskModal = document.getElementById('quickAddTaskModal');
+      const toastNotification = document.getElementById('toastNotification');
+      
+      // Open task detail modal
+      document.querySelectorAll('.task-card').forEach(card => {
+        card.addEventListener('click', function() {
+          taskDetailModal.classList.remove('hidden');
+        });
+      });
+      
+      // Close task detail modal
+      document.getElementById('closeTaskDetailBtn').addEventListener('click', function() {
+        taskDetailModal.classList.add('hidden');
+      });
+      
+      // Toggle team sidebar
+      document.getElementById('teamSidebarToggle').addEventListener('click', function() {
+        teamSidebar.classList.remove('hidden');
+        teamSidebar.querySelector('div').classList.remove('-translate-x-full');
+      });
+      
+      // Close team sidebar
+      document.getElementById('closeTeamSidebarBtn').addEventListener('click', function() {
+        teamSidebar.querySelector('div').classList.add('-translate-x-full');
+        setTimeout(() => {
+          teamSidebar.classList.add('hidden');
+        }, 300);
+      });
+      
+      // Toggle notification dropdown
+      document.getElementById('notificationButton').addEventListener('click', function() {
+        notificationDropdown.classList.toggle('hidden');
+      });
+      
+      // Close notification dropdown when clicking outside
+      document.addEventListener('click', function(event) {
+        if (!event.target.closest('#notificationDropdown') && !event.target.closest('#notificationButton')) {
+          notificationDropdown.classList.add('hidden');
+        }
+      });
+      
+      // Open board modal
+      document.getElementById('createBoardBtn').addEventListener('click', function() {
+        boardModal.classList.remove('hidden');
+      });
+      
+      // Open board modal from "Add Column" button
+      document.getElementById('addColumnBtn').addEventListener('click', function() {
+        boardModal.classList.remove('hidden');
+      });
+      
+      // Close board modal
+      document.getElementById('closeBoardModalBtn').addEventListener('click', function() {
+        boardModal.classList.add('hidden');
+      });
+      
+      // Open quick add task modal
+      document.getElementById('floatingAddTaskBtn').addEventListener('click', function() {
+        quickAddTaskModal.classList.remove('hidden');
+      });
+      
+      // Open quick add task modal from column add buttons
+      document.querySelectorAll('.add-task-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          quickAddTaskModal.classList.remove('hidden');
+        });
+      });
+      
+      // Close quick add task modal
+      document.getElementById('closeQuickAddTaskBtn').addEventListener('click', function() {
+        quickAddTaskModal.classList.add('hidden');
+      });
+      
+      // Close toast notification
+      document.getElementById('closeToastBtn').addEventListener('click', function() {
+        hideToast();
+      });
+      
+      // Function to show toast notification
+      window.showToast = function(message, type = 'success') {
+        const toast = document.getElementById('toastNotification');
+        const messageElement = toast.querySelector('p.text-slate-800');
+        
+        messageElement.textContent = message;
+        toast.classList.remove('hidden');
+        
+        // Auto hide after 5 seconds
+        setTimeout(() => {
+          hideToast();
+        }, 5000);
+      };
+      
+      // Function to hide toast notification
+      function hideToast() {
+        const toast = document.getElementById('toastNotification');
+        toast.classList.add('hidden');
+      }
+      
+      // Board tabs functionality
+      document.querySelectorAll('.board-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+          document.querySelectorAll('.board-tab').forEach(t => t.classList.remove('active'));
+          this.classList.add('active');
+        });
+      });
+      
+      // Close modals when clicking outside
+      document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', function() {
+          document.querySelectorAll('[id$="Modal"]').forEach(modal => {
+            modal.classList.add('hidden');
+          });
+        });
+      });
+      
+      // Show a welcome toast when the app loads
+      setTimeout(() => {
+        showToast('Welcome to TaskFlow!');
+      }, 1000);
+    });
+  </script>
+</body>
+</html>
